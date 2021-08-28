@@ -16,9 +16,10 @@ type Api struct {
 }
 
 func New() *Api {
+	conf := config.SetUpConfiguration()
 	return &Api{
-		store: location.SetUpHistoryStore(),
-		conf:  config.SetUpConfiguration(),
+		location.SetUpHistoryStore(conf),
+		conf,
 	}
 }
 
