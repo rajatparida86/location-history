@@ -11,14 +11,13 @@ import (
 )
 
 type Api struct {
-	store *location.History
+	store location.Store
 	conf  *config.Configuration
 }
 
-func New() *Api {
-	conf := config.SetUpConfiguration()
+func New(store location.Store, conf *config.Configuration) *Api {
 	return &Api{
-		location.SetUpHistoryStore(conf),
+		store,
 		conf,
 	}
 }
