@@ -1,8 +1,11 @@
 package location
 
 import (
+	"context"
 	"fmt"
 	"github.com/rajatparida86/location-history/internal/pkg/config"
+	"github.com/rajatparida86/location-history/internal/pkg/observabilitySDK"
+	"go.opentelemetry.io/otel/attribute"
 	"sync"
 	"time"
 )
@@ -46,14 +49,25 @@ func (i *InMemoryStore) UpdateLocation(orderId string, location *Location) error
 	return nil
 }
 
-func (i *InMemoryStore) GetLocation(orderId string, depth *int) ([]*Location, error) {
+func (i *InMemoryStore) GetLocation(ctx context.Context, orderId string, depth *int) ([]*Location, error) {
+	//HELPER: Create child span from context
+	tracer := observabilitySDK.Tracer()
+	_, span := tracer.Start(ctx, "get_location")
+	defer span.End()
+
 	locationHistory, ok := i.history[orderId]
+	span.SetAttributes(attribute.Int("location_history.length", len(locationHistory)))
 	if !ok {
-		return nil, fmt.Errorf("order with id - %v not found", orderId)
+		err := fmt.Errorf("order with id - %v not found", orderId)
+		//HELPER: Record errors
+		span.RecordError(err)
+		return nil, err
 	}
 	if depth == nil {
+		span.SetAttributes(attribute.Int("location_history.requested_depth", 0))
 		return locationHistory, nil
 	}
+	span.SetAttributes(attribute.Int("location_history.requested_depth", *depth))
 	return locationHistory[len(locationHistory)-*depth:], nil
 }
 

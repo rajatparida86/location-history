@@ -7,6 +7,8 @@ import (
 	"github.com/rajatparida86/location-history/internal/pkg/config"
 	"github.com/rajatparida86/location-history/internal/pkg/location"
 	log "github.com/sirupsen/logrus"
+
+	middleware "go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"net/http"
 )
 
@@ -24,6 +26,8 @@ func New(store location.Store, conf *config.Configuration) *Api {
 
 func (a *Api) Run() {
 	r := mux.NewRouter()
+	// Auto instrumentation for Gorilla MUX
+	r.Use(middleware.Middleware("location-history"))
 	r.HandleFunc("/health", a.healthHandler).Methods("GET")
 	r.HandleFunc("/location/{orderId}/now", a.addLocation).Methods("POST")
 	r.HandleFunc("/location/{orderId}", a.getLocation).Methods("GET")

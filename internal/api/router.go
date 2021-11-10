@@ -4,12 +4,20 @@ import (
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/rajatparida86/location-history/internal/pkg/location"
+	"github.com/rajatparida86/location-history/internal/pkg/observabilitySDK"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"net/http"
 	"strconv"
 )
 
 func (a *Api) healthHandler(w http.ResponseWriter, r *http.Request) {
+	//HELPER: create a child span from request context
+	tracer := observabilitySDK.Tracer()
+	_, span := tracer.Start(r.Context(), "health")
+	defer span.End()
+
 	log.Info("health check")
 	a.writeSimpleResponse(w, http.StatusOK)
 }
@@ -34,7 +42,14 @@ func (a *Api) addLocation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Api) getLocation(w http.ResponseWriter, r *http.Request) {
+	//HELPER: get current span from request context
+	span := trace.SpanFromContext(r.Context())
+
 	id := mux.Vars(r)["orderId"]
+
+	//Helper: Record attribute
+	span.SetAttributes(attribute.String("order_id", id))
+
 	var d *int
 	if r.FormValue("max") != "" {
 		depth, _ := strconv.Atoi(r.FormValue("max"))
@@ -42,7 +57,7 @@ func (a *Api) getLocation(w http.ResponseWriter, r *http.Request) {
 		*d = depth
 	}
 
-	history, err := a.store.GetLocation(id, d)
+	history, err := a.store.GetLocation(r.Context(), id, d)
 	if err != nil {
 		a.writeFailedResponse(w, http.StatusNotFound, err)
 		return
