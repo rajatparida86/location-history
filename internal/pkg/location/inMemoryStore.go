@@ -1,15 +1,18 @@
 package location
 
 import (
+	"context"
 	"fmt"
 	"github.com/rajatparida86/location-history/internal/pkg/config"
-	log "github.com/sirupsen/logrus"
+	"github.com/rajatparida86/location-history/internal/pkg/observabilitySDK"
+	"go.opentelemetry.io/otel/attribute"
+	"sync"
 	"time"
 )
 
 type InMemoryStore struct {
 	history map[string][]*Location
-	//lock  sync.Mutex
+	lock    sync.Mutex
 }
 
 func NewInMemoryStore(conf *config.Configuration) *InMemoryStore {
@@ -17,8 +20,8 @@ func NewInMemoryStore(conf *config.Configuration) *InMemoryStore {
 
 	// Expire location entries as per TTL
 	go func() {
-		for current := range time.Tick(time.Second) {
-			//history.lock.Lock()
+		for current := range time.Tick(1 * time.Minute) {
+			store.lock.Lock()
 			for orderId, history := range store.history {
 				for i := len(history) - 1; i >= 0; i-- {
 					if current.Unix()-history[i].createdAt > int64(conf.StoreTtl) {
@@ -27,14 +30,14 @@ func NewInMemoryStore(conf *config.Configuration) *InMemoryStore {
 					}
 				}
 			}
-			//history.lock.Unlock()
+			store.lock.Unlock()
 		}
 	}()
 	return store
 }
 
 func (i *InMemoryStore) UpdateLocation(orderId string, location *Location) error {
-	//i.lock.Lock()
+	i.lock.Lock()
 	locationHistory, ok := i.history[orderId]
 	if !ok {
 		locationHistory = make([]*Location, 0)
@@ -42,35 +45,39 @@ func (i *InMemoryStore) UpdateLocation(orderId string, location *Location) error
 	location.createdAt = time.Now().Unix()
 	locationHistory = append(locationHistory, location)
 	i.history[orderId] = locationHistory
-	//i.lock.Unlock()
+	i.lock.Unlock()
 	return nil
 }
 
-func (i *InMemoryStore) GetLocation(orderId string, depth *int) ([]*Location, error) {
-	//i.lock.Lock()
-	locationHistory, ok := i.history[orderId]
-	if !ok {
-		for k, v := range i.history {
-			log.Info("key %s", k)
-			log.Info("val %s", v)
-		}
-		return nil, fmt.Errorf("order with id - %v not found", orderId)
+func (i *InMemoryStore) GetLocation(ctx context.Context, orderId string, depth *int) ([]*Location, error) {
+	//HELPER: Create child span from context
+	tracer := observabilitySDK.Tracer()
+	_, span := tracer.Start(ctx, "get_location")
+	defer span.End()
 
+	locationHistory, ok := i.history[orderId]
+	span.SetAttributes(attribute.Int("location_history.length", len(locationHistory)))
+	if !ok {
+		err := fmt.Errorf("order with id - %v not found", orderId)
+		//HELPER: Record errors
+		span.RecordError(err)
+		return nil, err
 	}
 	if depth == nil {
+		span.SetAttributes(attribute.Int("location_history.requested_depth", 0))
 		return locationHistory, nil
 	}
-	//i.lock.Unlock()
+	span.SetAttributes(attribute.Int("location_history.requested_depth", *depth))
 	return locationHistory[len(locationHistory)-*depth:], nil
 }
 
 func (i *InMemoryStore) DeleteLocation(orderId string) error {
-	//i.lock.Lock()
+	i.lock.Lock()
 	_, ok := i.history[orderId]
 	if !ok {
 		return fmt.Errorf("order not found")
 	}
 	delete(i.history, orderId)
-	//i.lock.Unlock()
+	i.lock.Unlock()
 	return nil
 }
